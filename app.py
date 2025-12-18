@@ -70,6 +70,9 @@ def upload_document():
         # Secure the filename
         filename = secure_filename(file.filename)
         
+        # Get user_id from form data (optional, for user-based filtering)
+        user_id = request.form.get('user_id', 'anonymous')
+        
         # Save file
         file_path = os.path.join(Config.UPLOAD_FOLDER, filename)
         file.save(file_path)
@@ -98,7 +101,8 @@ def upload_document():
             document_id = db_handler.insert_document(
                 filename=filename,
                 chunk_count=chunk_count,
-                file_path=file_path
+                file_path=file_path,
+                user_id=user_id
             )
             
             return jsonify({

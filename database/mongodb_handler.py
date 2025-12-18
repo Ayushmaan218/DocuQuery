@@ -25,14 +25,18 @@ class MongoDBHandler:
             db_name = Config.MONGODB_URI.split('/')[-1] or 'docuquery'
             self.db = self.client[db_name]
             self.collection = self.db['documents']
+            self.users_collection = self.db['users']
             
             # Create index on document_id for faster queries
             self.collection.create_index([('document_id', ASCENDING)], unique=True)
             
+            # Create index on username for faster user queries
+            self.users_collection.create_index([('username', ASCENDING)], unique=True)
+            
         except ConnectionFailure as e:
             raise Exception(f"Failed to connect to MongoDB: {str(e)}")
     
-    def insert_document(self, filename: str, chunk_count: int, file_path: str = None) -> str:
+    def insert_document(self, filename: str, chunk_count: int, file_path: str = None, user_id: str = 'anonymous') -> str:
         """
         Insert document metadata into database
         
@@ -40,6 +44,7 @@ class MongoDBHandler:
             filename: Name of the uploaded file
             chunk_count: Number of chunks created from the document
             file_path: Optional path to the stored file
+            user_id: ID of the user who uploaded the document
             
         Returns:
             Document ID
@@ -51,6 +56,7 @@ class MongoDBHandler:
             'filename': filename,
             'chunk_count': chunk_count,
             'file_path': file_path,
+            'user_id': user_id,
             'upload_time': datetime.utcnow(),
             'status': 'processed'
         }
@@ -150,3 +156,74 @@ class MongoDBHandler:
         """Close MongoDB connection"""
         if self.client:
             self.client.close()
+    
+    # User Authentication Methods
+    
+    def create_user(self, username: str, password_hash: str) -> Dict:
+        """
+        Create a new user account
+        
+        Args:
+            username: Username
+            password_hash: Hashed password
+            
+        Returns:
+            User document with user_id
+        """
+        import hashlib
+        user_id = hashlib.md5(username.encode()).hexdigest()
+        
+        user = {
+            'username': username,
+            'password_hash': password_hash,
+            'user_id': user_id,
+            'created_at': datetime.utcnow()
+        }
+        
+        try:
+            self.users_collection.insert_one(user)
+            return {'user_id': user_id, 'username': username}
+        except DuplicateKeyError:
+            raise Exception("Username already exists")
+        except Exception as e:
+            raise Exception(f"Error creating user: {str(e)}")
+    
+    def authenticate_user(self, username: str, password_hash: str) -> Optional[Dict]:
+        """
+        Authenticate user with username and password
+        
+        Args:
+            username: Username
+            password_hash: Hashed password
+            
+        Returns:
+            User document if authenticated, None otherwise
+        """
+        try:
+            user = self.users_collection.find_one(
+                {'username': username, 'password_hash': password_hash},
+                {'_id': 0, 'password_hash': 0}  # Exclude sensitive data
+            )
+            return user
+        except Exception as e:
+            raise Exception(f"Error authenticating user: {str(e)}")
+    
+    def get_user(self, username: str) -> Optional[Dict]:
+        """
+        Get user by username
+        
+        Args:
+            username: Username
+            
+        Returns:
+            User document or None if not found
+        """
+        try:
+            user = self.users_collection.find_one(
+                {'username': username},
+                {'_id': 0}
+            )
+            return user
+        except Exception as e:
+            raise Exception(f"Error retrieving user: {str(e)}")
+
